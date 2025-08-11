@@ -65,8 +65,9 @@ jobs:
             ${{ runner.os }}-xcode-dd-
       - name: Install dependencies
         run: bun i --frozen-lockfile
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
+      - uses: valeriangalliat/action-sshd-cloudflared@v4
+        env:
+          AUTHORIZED_KEYS: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFJA6+a50qaovmbci6RZaIZ4TOiP3I5v3Fsq+oPE4biH nicholas@nick-pc
       - name: Build iOS
         run: bun run tauri ios build --export-method debugging
       - name: Upload iOS artifact
