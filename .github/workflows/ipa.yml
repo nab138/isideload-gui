@@ -120,16 +120,14 @@ jobs:
           out = Path(os.environ["RUNNER_TEMP"]) / "tauri.conf.prod.json"
           with open(out, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
+
+          # Export TAURI_CONFIG as minified single-line JSON to GITHUB_ENV
+          env_path = Path(os.environ["GITHUB_ENV"])
+          with open(env_path, "a", encoding="utf-8") as f:
+            f.write("TAURI_CONFIG=" + json.dumps(cfg, separators=(",", ":")) + "\n")
           PY
 
-          # Export TAURI_CONFIG as inline JSON (tauri-build expects JSON content, not a path)
-          {
-            echo 'TAURI_CONFIG<<EOF'
-            cat "$RUNNER_TEMP/tauri.conf.prod.json"
-            echo 'EOF'
-          } >> "$GITHUB_ENV"
-
-      # Gather app metadata (name/version/bundle id) from Cargo.toml and tauri.conf.json
+          # Gather app metadata (name/version/bundle id) from Cargo.toml and tauri.conf.json
       - name: Extract app metadata
         shell: bash
         run: |
