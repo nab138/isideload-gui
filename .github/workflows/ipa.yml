@@ -46,195 +46,162 @@ jobs:
           key: ${{ runner.os }}-sccache-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-sccache-
-      - name: Install jq and CocoaPods
-        run: brew install jq cocoapods
-      - name: Install JS deps
+
+      # Build frontend with bun so tauri-build can embed assets
+      - name: Install frontend deps
         run: bun install
-      - name: Build web assets
+
+      - name: Build frontend
         run: bun run build
-      - name: Initialize iOS project (if missing)
+
+      - name: Detect dist dir for tauri assets
         shell: bash
         run: |
-          set -euo pipefail
-          # Ensure bun/cargo are available if the init script needs them
-          export PATH="$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
-          # If no Xcode workspace/project exists yet, run tauri ios init non-interactively.
-          if ! ls -1 **/*.xcworkspace **/*.xcodeproj 2>/dev/null | head -n1 >/dev/null; then
-            echo "No Xcode project found, generating via 'tauri ios init'..."
-            # Prefer tauri pinned via bunx; fallback to global tauri if available.
-            # --ci makes it non-interactive and uses identifier/name from tauri config.
-            if command -v bunx >/dev/null 2>&1; then
-              bunx -y tauri@latest ios init --ci || bunx -y tauri ios init --ci
-            else
-              npx -y tauri@latest ios init --ci || npx -y tauri ios init --ci
-            fi
-          else
-            echo "Xcode project already present. Skipping init."
-          fi
-      - name: Detect Xcode project and scheme (and install Pods if needed)
-        id: ios_meta
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # Heuristics to find iOS project dir and workspace/project
-          SEARCH_DIRS=("ios" "src-tauri/ios" "src-tauri/gen/apple" "src-tauri/apple" "src-tauri")
-          WORK_DIR=""
-          for d in "${SEARCH_DIRS[@]}"; do
-            if [ -d "$d" ]; then WORK_DIR="$d"; break; fi
-          done
-          if [ -z "$WORK_DIR" ]; then
-            echo "No iOS project directory found (checked: ${SEARCH_DIRS[*]})." >&2
-            exit 1
-          fi
-          echo "workdir=$WORK_DIR" >> "$GITHUB_OUTPUT"
-
-          WORKSPACE=""
-          PROJECT=""
-          shopt -s nullglob
-          WS=( "$WORK_DIR"/*.xcworkspace )
-          if [ ${#WS[@]} -gt 0 ]; then
-            WORKSPACE="${WS[0]}"
-            echo "workspace=$WORKSPACE" >> "$GITHUB_OUTPUT"
-          fi
-          PRJ=( "$WORK_DIR"/*.xcodeproj )
-          if [ ${#PRJ[@]} -gt 0 ]; then
-            PROJECT="${PRJ[0]}"
-            echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
-          fi
-          if [ -z "$WORKSPACE" ] && [ -z "$PROJECT" ]; then
-            echo "No .xcworkspace or .xcodeproj found in $WORK_DIR" >&2
-            exit 1
-          fi
-
-          # Determine scheme
-          if [ -n "$WORKSPACE" ]; then
-            SCHEME="$(xcodebuild -list -json -workspace "$WORKSPACE" | jq -r '.workspace.schemes[0]')"
-          else
-            SCHEME="$(xcodebuild -list -json -project "$PROJECT" | jq -r '.project.schemes[0]')"
-          fi
-          if [ -z "$SCHEME" ] || [ "$SCHEME" = "null" ]; then
-            echo "Failed to detect a build scheme." >&2
-            exit 1
-          fi
-          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
-
-          # Determine build configuration (prefer Release; fallback to Debug or first available)
-          CONFIG=""
-          if [ -n "$PROJECT" ]; then
-            CONFIGS_JSON="$(xcodebuild -list -json -project "$PROJECT" 2>/dev/null || true)"
-            if [ -n "$CONFIGS_JSON" ]; then
-              mapfile -t CFGS < <(jq -r '.project.configurations[]' <<<"$CONFIGS_JSON")
-              for c in "${CFGS[@]}"; do
-                lc=$(echo "$c" | tr '[:upper:]' '[:lower:]')
-                if [ "$lc" = "release" ]; then CONFIG="$c"; break; fi
-              done
-              if [ -z "$CONFIG" ]; then
-                for c in "${CFGS[@]}"; do
-                  lc=$(echo "$c" | tr '[:upper:]' '[:lower:]')
-                  if [ "$lc" = "debug" ]; then CONFIG="$c"; break; fi
-                done
+          set -eux
+          # Pick first existing candidate directory
+          candidates=(dist build public/build build/dist apps/web/dist packages/*/dist)
+          for d in "${candidates[@]}"; do
+            for p in $d; do
+              if [ -d "$p" ]; then
+                echo "TAURI_DIST_DIR=$(pwd)/$p" >> "$GITHUB_ENV"
+                echo "Using TAURI_DIST_DIR=$p"
+                exit 0
               fi
-              if [ -z "$CONFIG" ] && [ ${#CFGS[@]} -gt 0 ]; then CONFIG="${CFGS[0]}"; fi
-            fi
-          fi
-          if [ -z "$CONFIG" ]; then CONFIG="Release"; fi
-          echo "configuration=$CONFIG" >> "$GITHUB_OUTPUT"
+            done
+          done
+          # Fallback to ./dist even if it doesn't exist (tauri may embed nothing)
+          echo "TAURI_DIST_DIR=$(pwd)/dist" >> "$GITHUB_ENV"
+          echo "No dist dir detected; set TAURI_DIST_DIR=./dist"
 
-          # Only install pods when actually needed and only for iOS
-          if [ -f "$WORK_DIR/Podfile" ]; then
-            if ! grep -Eq "^[[:space:]]*pod[[:space:]]+['\"][^'\"]+['\"]" "$WORK_DIR/Podfile"; then
-              echo "Podfile has no dependencies; skipping pod install."
-            elif grep -Eq 'target[[:space:]]+["'\''][^"'\''"]*_macOS["'\'']' "$WORK_DIR/Podfile"; then
-              echo "Podfile contains a macOS target; skipping pod install for iOS-only build."
-            else
-              (cd "$WORK_DIR" && pod install --repo-update)
-            fi
-          fi
-      - name: Build unsigned .app
-        id: build_app
+      - name: Install sccache
+        run: brew install sccache
+
+      - name: Cache sccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sccache
+          key: ${{ runner.os }}-sccache-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-sccache-
+
+      # Gather app metadata (name/version/bundle id) from Cargo.toml and tauri.conf.json
+      - name: Extract app metadata
         shell: bash
         run: |
-          set -euxo pipefail
+          python3 - << 'PY' >> "$GITHUB_ENV"
+          import json
+          from pathlib import Path
+          import tomllib
 
-          # Make sure Xcode's Run Script phase can find cargo and bun
-          export PATH="$HOME/.cargo/bin:$HOME/.bun/bin:/usr/local/bin:$PATH"
-          rustup show
-          rustup target list --installed
+          root = Path.cwd()
+          cargo = root / "src-tauri" / "Cargo.toml"
+          name = "app"
+          version = "0.1.0"
+          if cargo.exists():
+            data = tomllib.load(open(cargo, "rb"))
+            pkg = data.get("package", {})
+            name = pkg.get("name", name)
+            version = pkg.get("version", version)
 
-          DERIVED_DATA="$PWD/build/DerivedData"
-          SELECTED_CONFIG="${{ steps.ios_meta.outputs.configuration }}"
+          bundle_id = f"com.example.{name}"
+          display_name = name
 
-          if [ -n "${{ steps.ios_meta.outputs.workspace }}" ]; then
-            xcodebuild \
-              -workspace "${{ steps.ios_meta.outputs.workspace }}" \
-              -scheme "${{ steps.ios_meta.outputs.scheme }}" \
-              -configuration "$SELECTED_CONFIG" \
-              -sdk iphoneos \
-              -derivedDataPath "$DERIVED_DATA" \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY="" \
-              PROVISIONING_PROFILE_SPECIFIER="" \
-              DEVELOPMENT_TEAM="" \
-              ENABLE_BITCODE=NO
-          else
-            xcodebuild \
-              -project "${{ steps.ios_meta.outputs.project }}" \
-              -scheme "${{ steps.ios_meta.outputs.scheme }}" \
-              -configuration "$SELECTED_CONFIG" \
-              -sdk iphoneos \
-              -derivedDataPath "$DERIVED_DATA" \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY="" \
-              PROVISIONING_PROFILE_SPECIFIER="" \
-              DEVELOPMENT_TEAM="" \
-              ENABLE_BITCODE=NO
-          fi
+          tc = root / "src-tauri" / "tauri.conf.json"
+          if tc.exists():
+            with open(tc, "r", encoding="utf-8") as f:
+              j = json.load(f)
+            # Try both v2 and legacy shapes
+            appcfg = j.get("app") or j.get("tauri", {}).get("app", {}) or {}
+            prod_name = appcfg.get("productName")
+            if isinstance(prod_name, str) and prod_name.strip():
+              display_name = prod_name.strip()
+            bundle = appcfg.get("bundle") or {}
+            bid = bundle.get("identifier")
+            if isinstance(bid, str) and bid.strip():
+              bundle_id = bid.strip()
 
-          # Look for the .app across common config directory casings
-          OUT_ROOT="$DERIVED_DATA/Build/Products"
-          APP_PATH=""
-          TRY_CFGS=(
-            "$SELECTED_CONFIG"
-            "$(echo "$SELECTED_CONFIG" | tr '[:upper:]' '[:lower:]')"
-            "$(echo "$SELECTED_CONFIG" | tr '[:lower:]' '[:upper:]')"
-            "Release" "Debug" "release" "debug"
-          )
-          for cfg in "${TRY_CFGS[@]}"; do
-            if [ -d "$OUT_ROOT/$cfg-iphoneos" ]; then
-              APP_PATH="$(find "$OUT_ROOT/$cfg-iphoneos" -maxdepth 1 -type d -name '*.app' | head -n 1 || true)"
-              [ -n "$APP_PATH" ] && break
-            fi
-          done
+          # Binary names use underscores instead of dashes
+          bin_name = name.replace("-", "_")
 
-          if [ -z "$APP_PATH" ]; then
-            echo "Could not locate built .app in $OUT_ROOT/*-iphoneos." >&2
+          print(f"APP_NAME={display_name}")
+          print(f"BINARY_NAME={bin_name}")
+          print(f"APP_VERSION={version}")
+          print(f"BUNDLE_ID={bundle_id}")
+          PY
+
+      # Build the Rust iOS binary (unsigned), ensuring assets are embedded via TAURI_DIST_DIR
+      - name: Build Rust (aarch64-apple-ios)
+        env:
+          TAURI_DIST_DIR: ${{ env.TAURI_DIST_DIR }}
+        run: |
+          cd src-tauri
+          cargo build --release --target aarch64-apple-ios
+
+      # Manually assemble the .app bundle and create an unsigned .ipa
+      - name: Bundle .app and create unsigned .ipa
+        shell: bash
+        env:
+          TAURI_DIST_DIR: ${{ env.TAURI_DIST_DIR }}
+          APP_NAME: ${{ env.APP_NAME }}
+          BINARY_NAME: ${{ env.BINARY_NAME }}
+          APP_VERSION: ${{ env.APP_VERSION }}
+          BUNDLE_ID: ${{ env.BUNDLE_ID }}
+        run: |
+          set -eux
+          PAYLOAD_DIR="$RUNNER_TEMP/Payload"
+          APP_DIR="$PAYLOAD_DIR/${APP_NAME}.app"
+          mkdir -p "$APP_DIR"
+
+          BIN_PATH="src-tauri/target/aarch64-apple-ios/release/${BINARY_NAME}"
+          if [ ! -f "$BIN_PATH" ]; then
+            echo "Binary not found at $BIN_PATH"
+            ls -la "src-tauri/target/aarch64-apple-ios/release" || true
             exit 1
           fi
-          echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
-      - name: Create unsigned IPA
-        id: package_ipa
-        shell: bash
-        run: |
-          set -euxo pipefail
-          APP_PATH="${{ steps.build_app.outputs.app_path }}"
-          OUT_DIR="$PWD/artifacts"
-          mkdir -p "$OUT_DIR/Payload"
-          cp -R "$APP_PATH" "$OUT_DIR/Payload/"
 
-          SAFE_SCHEME="$(echo "${{ steps.ios_meta.outputs.scheme }}" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')"
-          IPA_NAME="${SAFE_SCHEME:-app}-unsigned.ipa"
+          # Place executable
+          cp "$BIN_PATH" "$APP_DIR/$APP_NAME"
+          chmod +x "$APP_DIR/$APP_NAME"
 
-          (cd "$OUT_DIR" && /usr/bin/zip -r "$IPA_NAME" Payload)
-          rm -rf "$OUT_DIR/Payload"
+          # Copy frontend as a fallback resource directory (assets should already be embedded)
+          if [ -d "$TAURI_DIST_DIR" ]; then
+            mkdir -p "$APP_DIR/tauri"
+            rsync -a "$TAURI_DIST_DIR"/ "$APP_DIR/tauri"/ || cp -R "$TAURI_DIST_DIR"/. "$APP_DIR/tauri"/
+          fi
 
-          echo "ipa=$OUT_DIR/$IPA_NAME" >> "$GITHUB_OUTPUT"
-      - name: Upload app artifacts
+          # Minimal Info.plist
+          cat > "$APP_DIR/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
+            <key>CFBundleExecutable</key><string>${APP_NAME}</string>
+            <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleName</key><string>${APP_NAME}</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${APP_VERSION}</string>
+            <key>CFBundleVersion</key><string>${APP_VERSION}</string>
+            <key>LSRequiresIPhoneOS</key><true/>
+            <key>UIDeviceFamily</key>
+            <array><integer>1</integer><integer>2</integer></array>
+            <key>UISupportedInterfaceOrientations</key>
+            <array><string>UIInterfaceOrientationPortrait</string></array>
+            <key>UIRequiredDeviceCapabilities</key>
+            <array><string>arm64</string></array>
+            <key>UILaunchScreen</key><dict/></dict>
+          </plist>
+          PLIST
+
+          # Package into .ipa
+          IPA_PATH="$RUNNER_TEMP/${APP_NAME}-${APP_VERSION}-unsigned.ipa"
+          (cd "$RUNNER_TEMP" && /usr/bin/zip -qry "$IPA_PATH" Payload)
+          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
+
+      - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned
-          path: |
-            ${{ steps.package_ipa.outputs.ipa }}
-            ${{ steps.build_app.outputs.app_path }}
+          name: ios-ipa-unsigned
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
