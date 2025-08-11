@@ -16,11 +16,11 @@
     "@tauri-apps/plugin-opener": "^2"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "https://gitpkg.vercel.app/nab138/tauri/packages/cli?dev",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.9.2",
-    "vite": "^7.0.4",
-    "@tauri-apps/cli": "^2"
+    "vite": "^7.0.4"
   }
 }
