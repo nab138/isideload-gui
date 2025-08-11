@@ -46,32 +46,143 @@ jobs:
           key: ${{ runner.os }}-sccache-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-sccache-
-      - name: Cache CocoaPods
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cocoapods
-            ~/Library/Caches/CocoaPods
-            src-tauri/gen/apple/Pods
-          key: ${{ runner.os }}-pods-${{ hashFiles('src-tauri/gen/apple/**/Podfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pods-
-      - name: Cache Xcode DerivedData
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Developer/Xcode/DerivedData
-          key: ${{ runner.os }}-xcode-dd-${{ hashFiles('src-tauri/gen/apple/**/project.pbxproj') }}
-          restore-keys: |
-            ${{ runner.os }}-xcode-dd-
-      - name: Install dependencies
-        run: bun i --frozen-lockfile
-      - uses: valeriangalliat/action-sshd-cloudflared@v4
-        env:
-          AUTHORIZED_KEYS: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFJA6+a50qaovmbci6RZaIZ4TOiP3I5v3Fsq+oPE4biH nicholas@nick-pc
-      - name: Build iOS
-        run: bun run tauri ios build --export-method debugging
-      - name: Upload iOS artifact
+      - name: Install jq and CocoaPods
+        run: brew install jq cocoapods
+      - name: Install JS deps
+        run: bun install
+      - name: Build web assets
+        run: bun run build
+      - name: Initialize iOS project (if missing)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # If no Xcode workspace/project exists yet, run tauri ios init non-interactively.
+          if ! ls -1 **/*.xcworkspace **/*.xcodeproj 2>/dev/null | head -n1 >/dev/null; then
+            echo "No Xcode project found, generating via 'tauri ios init'..."
+            # Prefer tauri pinned via bunx; fallback to global tauri if available.
+            # --ci makes it non-interactive and uses identifier/name from tauri config.
+            if command -v bunx >/dev/null 2>&1; then
+              bunx -y tauri@latest ios init --ci || bunx -y tauri ios init --ci
+            else
+              npx -y tauri@latest ios init --ci || npx -y tauri ios init --ci
+            fi
+          else
+            echo "Xcode project already present. Skipping init."
+          fi
+      - name: Detect Xcode project and scheme (and install Pods if needed)
+        id: ios_meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Heuristics to find iOS project dir and workspace/project
+          SEARCH_DIRS=("ios" "src-tauri/ios" "src-tauri/gen/apple" "src-tauri/apple" "src-tauri")
+          WORK_DIR=""
+          for d in "${SEARCH_DIRS[@]}"; do
+            if [ -d "$d" ]; then WORK_DIR="$d"; break; fi
+          done
+          if [ -z "$WORK_DIR" ]; then
+            echo "No iOS project directory found (checked: ${SEARCH_DIRS[*]})." >&2
+            exit 1
+          fi
+          echo "workdir=$WORK_DIR" >> "$GITHUB_OUTPUT"
+
+          WORKSPACE=""
+          PROJECT=""
+          shopt -s nullglob
+          WS=( "$WORK_DIR"/*.xcworkspace )
+          if [ ${#WS[@]} -gt 0 ]; then
+            WORKSPACE="${WS[0]}"
+            echo "workspace=$WORKSPACE" >> "$GITHUB_OUTPUT"
+          fi
+          PRJ=( "$WORK_DIR"/*.xcodeproj )
+          if [ ${#PRJ[@]} -gt 0 ]; then
+            PROJECT="${PRJ[0]}"
+            echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -z "$WORKSPACE" ] && [ -z "$PROJECT" ]; then
+            echo "No .xcworkspace or .xcodeproj found in $WORK_DIR" >&2
+            exit 1
+          fi
+
+          # Determine scheme
+          if [ -n "$WORKSPACE" ]; then
+            SCHEME="$(xcodebuild -list -json -workspace "$WORKSPACE" | jq -r '.workspace.schemes[0]')"
+          else
+            SCHEME="$(xcodebuild -list -json -project "$PROJECT" | jq -r '.project.schemes[0]')"
+          fi
+          if [ -z "$SCHEME" ] || [ "$SCHEME" = "null" ]; then
+            echo "Failed to detect a build scheme." >&2
+            exit 1
+          fi
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
+          # If using CocoaPods, install pods
+          if [ -f "$WORK_DIR/Podfile" ]; then
+            (cd "$WORK_DIR" && pod install --repo-update)
+          fi
+      - name: Build unsigned .app
+        id: build_app
+        shell: bash
+        run: |
+          set -euxo pipefail
+          DERIVED_DATA="$PWD/build/DerivedData"
+
+          if [ -n "${{ steps.ios_meta.outputs.workspace }}" ]; then
+            xcodebuild \
+              -workspace "${{ steps.ios_meta.outputs.workspace }}" \
+              -scheme "${{ steps.ios_meta.outputs.scheme }}" \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath "$DERIVED_DATA" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              PROVISIONING_PROFILE_SPECIFIER="" \
+              DEVELOPMENT_TEAM="" \
+              ENABLE_BITCODE=NO
+          else
+            xcodebuild \
+              -project "${{ steps.ios_meta.outputs.project }}" \
+              -scheme "${{ steps.ios_meta.outputs.scheme }}" \
+              -configuration Release \
+              -sdk iphoneos \
+              -derivedDataPath "$DERIVED_DATA" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              PROVISIONING_PROFILE_SPECIFIER="" \
+              DEVELOPMENT_TEAM="" \
+              ENABLE_BITCODE=NO
+          fi
+
+          APP_PATH="$(find "$DERIVED_DATA/Build/Products/Release-iphoneos" -maxdepth 1 -type d -name '*.app' | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "Could not locate built .app in Release-iphoneos." >&2
+            exit 1
+          fi
+          echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
+      - name: Create unsigned IPA
+        id: package_ipa
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP_PATH="${{ steps.build_app.outputs.app_path }}"
+          OUT_DIR="$PWD/artifacts"
+          mkdir -p "$OUT_DIR/Payload"
+          cp -R "$APP_PATH" "$OUT_DIR/Payload/"
+
+          SAFE_SCHEME="$(echo "${{ steps.ios_meta.outputs.scheme }}" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')"
+          IPA_NAME="${SAFE_SCHEME:-app}-unsigned.ipa"
+
+          (cd "$OUT_DIR" && /usr/bin/zip -r "$IPA_NAME" Payload)
+          rm -rf "$OUT_DIR/Payload"
+
+          echo "ipa=$OUT_DIR/$IPA_NAME" >> "$GITHUB_OUTPUT"
+      - name: Upload app artifacts
         uses: actions/upload-artifact@v4
         with:
-          path: src-tauri/gen/apple/build/arm64/isideload-gui.ipa
-          name: isideload-gui.ipa
+          name: ios-unsigned
+          path: |
+            ${{ steps.package_ipa.outputs.ipa }}
+            ${{ steps.build_app.outputs.app_path }}
