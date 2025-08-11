@@ -50,7 +50,6 @@ jobs:
       # Build frontend with bun so tauri-build can embed assets
       - name: Install frontend deps
         run: bun install
-
       - name: Build frontend
         run: bun run build
 
@@ -72,17 +71,6 @@ jobs:
           # Fallback to ./dist even if it doesn't exist (tauri may embed nothing)
           echo "TAURI_DIST_DIR=$(pwd)/dist" >> "$GITHUB_ENV"
           echo "No dist dir detected; set TAURI_DIST_DIR=./dist"
-
-      - name: Install sccache
-        run: brew install sccache
-
-      - name: Cache sccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/sccache
-          key: ${{ runner.os }}-sccache-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-sccache-
 
       # Gather app metadata (name/version/bundle id) from Cargo.toml and tauri.conf.json
       - name: Extract app metadata
@@ -120,11 +108,13 @@ jobs:
             if isinstance(bid, str) and bid.strip():
               bundle_id = bid.strip()
 
-          # Binary names use underscores instead of dashes
-          bin_name = name.replace("-", "_")
+          # Keep hyphens; matches Cargo's executable filename
+          bin_name = name
+          bin_name_alt = name.replace("-", "_")
 
           print(f"APP_NAME={display_name}")
           print(f"BINARY_NAME={bin_name}")
+          print(f"BINARY_NAME_ALT={bin_name_alt}")
           print(f"APP_VERSION={version}")
           print(f"BUNDLE_ID={bundle_id}")
           PY
@@ -144,6 +134,7 @@ jobs:
           TAURI_DIST_DIR: ${{ env.TAURI_DIST_DIR }}
           APP_NAME: ${{ env.APP_NAME }}
           BINARY_NAME: ${{ env.BINARY_NAME }}
+          BINARY_NAME_ALT: ${{ env.BINARY_NAME_ALT }}
           APP_VERSION: ${{ env.APP_VERSION }}
           BUNDLE_ID: ${{ env.BUNDLE_ID }}
         run: |
@@ -152,10 +143,22 @@ jobs:
           APP_DIR="$PAYLOAD_DIR/${APP_NAME}.app"
           mkdir -p "$APP_DIR"
 
-          BIN_PATH="src-tauri/target/aarch64-apple-ios/release/${BINARY_NAME}"
-          if [ ! -f "$BIN_PATH" ]; then
-            echo "Binary not found at $BIN_PATH"
-            ls -la "src-tauri/target/aarch64-apple-ios/release" || true
+          TARGET_DIR="src-tauri/target/aarch64-apple-ios/release"
+          CANDIDATES=(
+            "$TARGET_DIR/${BINARY_NAME}"
+            "$TARGET_DIR/${BINARY_NAME_ALT:-${BINARY_NAME//-/_}}"
+          )
+          BIN_PATH=""
+          for c in "${CANDIDATES[@]}"; do
+            if [ -f "$c" ]; then
+              BIN_PATH="$c"
+              break
+            fi
+          done
+          if [ -z "$BIN_PATH" ]; then
+            echo "Binary not found. Looked for:"
+            printf '  - %s\n' "${CANDIDATES[@]}"
+            ls -la "$TARGET_DIR" || true
             exit 1
           fi
 
@@ -180,6 +183,7 @@ jobs:
             <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
             <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
             <key>CFBundleName</key><string>${APP_NAME}</string>
+            <key>CFBundleDisplayName</key><string>${APP_NAME}</string>
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>CFBundleShortVersionString</key><string>${APP_VERSION}</string>
             <key>CFBundleVersion</key><string>${APP_VERSION}</string>
