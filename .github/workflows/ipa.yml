@@ -87,6 +87,8 @@ jobs:
           if [ -d "$TAURI_DIST_DIR" ]; then
             rsync -a --delete "$TAURI_DIST_DIR"/ "$PROD_DIST"/ || cp -R "$TAURI_DIST_DIR"/. "$PROD_DIST"/
           fi
+          # Export absolute path for later use as TAURI_DIST_DIR during build
+          echo "CI_PROD_DIST=$PROD_DIST" >> "$GITHUB_ENV"
 
           python3 - << 'PY'
           import json, os
@@ -101,14 +103,14 @@ jobs:
             with open(cfg_in, "r", encoding="utf-8") as f:
               cfg = json.load(f)
 
-          # v1/v2 compatible patching:
+          # v2-compatible build section
           build = cfg.setdefault("build", {})
-          # Remove dev server pointers
           for k in ("devPath", "devUrl"):
             build.pop(k, None)
-          # Only set frontendDist (distDir is invalid for current tauri-build)
+          # Only frontendDist (distDir is invalid for this tauri-build)
           build["frontendDist"] = prod_dist_rel
 
+          # Force windows URL to embedded assets
           app = cfg.setdefault("app", {})
           wins = app.setdefault("windows", [])
           if isinstance(wins, list) and wins:
@@ -118,17 +120,13 @@ jobs:
           else:
             app["windows"] = [{"url": "tauri://localhost"}]
 
-          out = Path(os.environ["RUNNER_TEMP"]) / "tauri.conf.prod.json"
-          with open(out, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2)
-
-          # Export TAURI_CONFIG as minified single-line JSON to GITHUB_ENV
+          # Export TAURI_CONFIG as single-line JSON (what tauri-build expects)
           env_path = Path(os.environ["GITHUB_ENV"])
           with open(env_path, "a", encoding="utf-8") as f:
             f.write("TAURI_CONFIG=" + json.dumps(cfg, separators=(",", ":")) + "\n")
           PY
 
-          # Gather app metadata (name/version/bundle id) from Cargo.toml and tauri.conf.json
+      # Gather app metadata (name/version/bundle id) from Cargo.toml and tauri.conf.json
       - name: Extract app metadata
         shell: bash
         run: |
@@ -178,7 +176,10 @@ jobs:
       # Build the Rust iOS binary (unsigned), ensuring assets are embedded via TAURI_DIST_DIR
       - name: Build Rust (aarch64-apple-ios)
         env:
+          # Ensure embedded assets are used and dev server is not
           TAURI_CONFIG: ${{ env.TAURI_CONFIG }}
+          TAURI_DIST_DIR: ${{ env.CI_PROD_DIST }}
+          TAURI_URL: tauri://localhost
           TAURI_SKIP_DEVSERVER: "true"
           TAURI_DEV: "false"
         run: |
