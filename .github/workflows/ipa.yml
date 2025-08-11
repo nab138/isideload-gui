@@ -56,6 +56,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Ensure bun/cargo are available if the init script needs them
+          export PATH="$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
           # If no Xcode workspace/project exists yet, run tauri ios init non-interactively.
           if ! ls -1 **/*.xcworkspace **/*.xcodeproj 2>/dev/null | head -n1 >/dev/null; then
             echo "No Xcode project found, generating via 'tauri ios init'..."
@@ -132,6 +134,12 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+
+          # Make sure Xcode's Run Script phase can find cargo and bun
+          export PATH="$HOME/.cargo/bin:$HOME/.bun/bin:/usr/local/bin:$PATH"
+          rustup show
+          rustup target list --installed
+
           DERIVED_DATA="$PWD/build/DerivedData"
 
           if [ -n "${{ steps.ios_meta.outputs.workspace }}" ]; then
@@ -162,9 +170,13 @@ jobs:
               ENABLE_BITCODE=NO
           fi
 
-          APP_PATH="$(find "$DERIVED_DATA/Build/Products/Release-iphoneos" -maxdepth 1 -type d -name '*.app' | head -n 1)"
+          # Look for the .app in both Release and Debug dirs to handle differing scheme configs
+          APP_PATH="$(find "$DERIVED_DATA/Build/Products/Release-iphoneos" -maxdepth 1 -type d -name '*.app' | head -n 1 || true)"
           if [ -z "$APP_PATH" ]; then
-            echo "Could not locate built .app in Release-iphoneos." >&2
+            APP_PATH="$(find "$DERIVED_DATA/Build/Products/debug-iphoneos" -maxdepth 1 -type d -name '*.app' | head -n 1 || true)"
+          fi
+          if [ -z "$APP_PATH" ]; then
+            echo "Could not locate built .app in Release-iphoneos or debug-iphoneos." >&2
             exit 1
           fi
           echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
