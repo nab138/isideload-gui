@@ -117,9 +117,15 @@ jobs:
           fi
           echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
 
-          # If using CocoaPods, install pods
+          # Only install pods when actually needed and only for iOS
           if [ -f "$WORK_DIR/Podfile" ]; then
-            (cd "$WORK_DIR" && pod install --repo-update)
+            if ! grep -Eq "^[[:space:]]*pod[[:space:]]+['\"][^'\"]+['\"]" "$WORK_DIR/Podfile"; then
+              echo "Podfile has no dependencies; skipping pod install."
+            elif grep -Eq 'target[[:space:]]+["'\''][^"'\''"]*_macOS["'\'']' "$WORK_DIR/Podfile"; then
+              echo "Podfile contains a macOS target; skipping pod install for iOS-only build."
+            else
+              (cd "$WORK_DIR" && pod install --repo-update)
+            fi
           fi
       - name: Build unsigned .app
         id: build_app
