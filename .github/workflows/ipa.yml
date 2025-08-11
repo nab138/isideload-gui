@@ -103,9 +103,10 @@ jobs:
 
           # v1/v2 compatible patching:
           build = cfg.setdefault("build", {})
+          # Remove dev server pointers
           for k in ("devPath", "devUrl"):
             build.pop(k, None)
-          build["distDir"] = prod_dist_rel
+          # Only set frontendDist (distDir is invalid for current tauri-build)
           build["frontendDist"] = prod_dist_rel
 
           app = cfg.setdefault("app", {})
