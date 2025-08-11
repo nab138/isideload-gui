@@ -65,6 +65,8 @@ jobs:
             ${{ runner.os }}-xcode-dd-
       - name: Install dependencies
         run: bun i --frozen-lockfile
+      - name: Setup upterm session
+        uses: lhotari/action-upterm@v1
       - name: Build iOS
         run: bun run tauri ios build --export-method debugging
       - name: Upload iOS artifact
