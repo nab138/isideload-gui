@@ -22,5 +22,5 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-isideload = { path = "../../isideload/isideload", features = ["vendored-openssl", "vendored-botan"] }
-idevice = { version = "0.1.37", features = ["usbmuxd"] }
+# isideload = { path = "../../isideload/isideload", features = ["vendored-openssl", "vendored-botan"] }
+# idevice = { version = "0.1.37", features = ["usbmuxd"] }
