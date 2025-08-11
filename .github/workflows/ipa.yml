@@ -4,6 +4,9 @@ on: [push, pull_request, workflow_dispatch]
 jobs:
   iOS:
     runs-on: macos-15
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_CACHE_SIZE: 5G
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,9 +23,46 @@ jobs:
           workspaces: |
             src-tauri
           cache-all-crates: true
+          cache-on-failure: true
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - name: Cache Bun and node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cache/bun
+            **/node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - name: Install sccache
+        run: brew install sccache
+      - name: Cache sccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sccache
+          key: ${{ runner.os }}-sccache-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-sccache-
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cocoapods
+            ~/Library/Caches/CocoaPods
+            src-tauri/gen/apple/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('src-tauri/gen/apple/**/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+      - name: Cache Xcode DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-xcode-dd-${{ hashFiles('src-tauri/gen/apple/**/project.pbxproj') }}
+          restore-keys: |
+            ${{ runner.os }}-xcode-dd-
       - name: Install dependencies
         run: bun i --frozen-lockfile
       - name: Build iOS
