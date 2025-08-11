@@ -65,10 +65,12 @@ jobs:
             ${{ runner.os }}-xcode-dd-
       - name: Install dependencies
         run: bun i --frozen-lockfile
+      - name: Install custom tauri cli
+        run: cargo install tauri-cli --git https://github.com/nab138/tauri.git --locked
       - name: Init ios
-        run: bun run tauri ios init
+        run: cargo tauri ios init
       - name: Build iOS
-        run: bun run tauri ios build --export-method debugging
+        run: cargo tauri ios build --export-method debugging
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
