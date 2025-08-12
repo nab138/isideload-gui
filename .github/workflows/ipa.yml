@@ -57,6 +57,7 @@ jobs:
             ${{ runner.os }}-cargo-bin-tauri-cli-
       - name: Install tauri cli
         run: cargo install tauri-cli --version "^2.0.0" --locked
+      - run: cargo install --force --locked bindgen-cli
       - name: Build iOS
         run: cargo tauri ios build
         continue-on-error: true
