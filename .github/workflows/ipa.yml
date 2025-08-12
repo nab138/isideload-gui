@@ -67,12 +67,16 @@ jobs:
         run: bun i --frozen-lockfile
       - name: Install custom tauri cli
         run: cargo install tauri-cli --git https://github.com/nab138/tauri.git --locked
-      - name: Init ios
-        run: cargo tauri ios init
       - name: Build iOS
-        run: cargo tauri ios build --export-method debugging
+        run: cargo tauri ios build
+      - name: Convert .app to .ipa
+        run: |
+          mkdir Payload
+          cp -R src-tauri/gen/apple/build/isideload-gui.xcarchive/Products/Applications/isideload-gui.app Payload/
+          cd Payload
+          zip -r ../isideload-gui.ipa *
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
-          path: src-tauri/gen/apple/build/arm64/isideload-gui.ipa
+          path: isideload-gui.ipa
           name: isideload-gui.ipa
