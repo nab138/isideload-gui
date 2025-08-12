@@ -73,7 +73,7 @@ jobs:
       - name: Convert .app to .ipa
         run: |
           mkdir Payload
-          cp -R src-tauri/gen/apple/build/isideload-gui.xcarchive/Products/Applications/isideload-gui.app Payload/
+          cp -R src-tauri/gen/apple/build/isideload-gui_iOS.xcarchive/Products/Applications/isideload-gui.app Payload/
           cd Payload
           zip -r ../isideload-gui.ipa *
       - name: Upload iOS artifact
