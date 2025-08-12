@@ -48,6 +48,13 @@ jobs:
             ${{ runner.os }}-xcode-dd-
       - name: Install dependencies
         run: bun i --frozen-lockfile
+      - name: Cache Cargo bin
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-bin-tauri-cli-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bin-tauri-cli-
       - name: Install tauri cli
         run: cargo install tauri-cli --version "^2.0.0" --locked
       - name: Build iOS
