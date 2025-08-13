@@ -1,12 +1,37 @@
 // import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import "./App.css";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { readTextFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
 
 function App() {
   let [pairing, setPairing] = useState<string | null>(null);
-  let [contents, setContents] = useState<string | null>(null);
+  let [appleId, setAppleId] = useState<string>("");
+  let [applePassword, setApplePassword] = useState<string>("");
+  let [tfaOpen, setTfaOpen] = useState<boolean>(true);
+  let [tfaCode, setTfaCode] = useState<string>("");
+  let [error, setError] = useState<string | null>(null);
+
+  const listenerAdded = useRef(false);
+  const unlisten2fa = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    if (!listenerAdded.current) {
+      (async () => {
+        const unlistenFn = await listen("2fa-required", () => {
+          setTfaOpen(true);
+        });
+        unlisten2fa.current = unlistenFn;
+      })();
+      listenerAdded.current = true;
+    }
+    return () => {
+      unlisten2fa.current();
+    };
+  }, []);
+
   return (
     <main className="container">
       <h1>Welcome to isideload</h1>
@@ -16,22 +41,70 @@ function App() {
           (except for zsign)
         </span>
       </p>
-      <p>Pairing: {pairing}</p>
       <div className="button-container">
+        <input
+          type="text"
+          placeholder="Apple ID"
+          onChange={(e) => setAppleId(e.target.value)}
+        />
+        <input
+          type="password"
+          placeholder="Apple Password"
+          onChange={(e) => setApplePassword(e.target.value)}
+        />
         <button
           onClick={async () => {
             let pairing = await open({
               multiple: false,
               directory: false,
             });
-            setPairing(pairing as string);
             let contents = await readTextFile(pairing as string);
-            setContents(contents);
+            setPairing(contents);
+          }}
+          style={{
+            backgroundColor: pairing != null ? "green" : "white",
           }}
         >
           Import Pairing File
         </button>
-        <button>Sideload!</button>
+        <button
+          onClick={async () => {
+            let appPath = await open({
+              multiple: false,
+              directory: false,
+            });
+            try {
+              await invoke("install_app", {
+                pairingFile: pairing,
+                appPath,
+                appId: appleId,
+                appPassword: applePassword,
+              });
+            } catch (error) {
+              setError(`Error: ${error}`);
+            }
+          }}
+        >
+          Sideload!
+        </button>
+        {tfaOpen && (
+          <>
+            <input
+              type="text"
+              placeholder="Enter 2FA Code"
+              value={tfaCode}
+              onChange={(e) => setTfaCode(e.target.value)}
+            />
+            <button
+              onClick={async () => {
+                await emit("2fa-recieved", tfaCode);
+                setTfaOpen(false);
+              }}
+            >
+              Submit 2FA
+            </button>
+          </>
+        )}
       </div>
       <div
         style={{
@@ -42,7 +115,7 @@ function App() {
           marginTop: "10px",
         }}
       >
-        {contents}
+        {error}
       </div>
     </main>
   );
