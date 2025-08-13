@@ -6,7 +6,7 @@ jobs:
     runs-on: macos-15
     env:
       RUSTC_WRAPPER: sccache
-      SCCACHE_CACHE_SIZE: 5G
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,6 +24,8 @@ jobs:
             src-tauri
           cache-all-crates: true
           cache-on-failure: true
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.9
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -56,8 +58,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-bin-tauri-cli-
       - name: Install tauri cli
-        run: cargo install tauri-cli --version "^2.0.0" --locked
-      - run: cargo install --force --locked bindgen-cli
+        run: cargo install tauri-cli --version "^2.0.0" --locked && cargo install --locked bindgen-cli
       - name: Build iOS
         run: cargo tauri ios build
         continue-on-error: true
@@ -65,7 +66,7 @@ jobs:
         run: |
           mkdir Payload
           cp -R src-tauri/gen/apple/build/isideload-gui_iOS.xcarchive/Products/Applications/isideload-gui.app Payload/
-          zip -r ../isideload-gui.ipa Payload
+          zip -r isideload-gui.ipa Payload
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
