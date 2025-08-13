@@ -13,6 +13,7 @@ function App() {
   let [tfaOpen, setTfaOpen] = useState<boolean>(false);
   let [tfaCode, setTfaCode] = useState<string>("");
   let [error, setError] = useState<string | null>(null);
+  let [loading, setLoading] = useState<boolean>(true);
 
   const listenerAdded = useRef(false);
   const unlisten2fa = useRef<() => void>(() => {});
@@ -74,6 +75,7 @@ function App() {
               directory: false,
             });
             try {
+              setLoading(true);
               await invoke("install_app", {
                 pairingFile: pairing,
                 appPath,
@@ -82,6 +84,8 @@ function App() {
               });
             } catch (error) {
               setError(`Error: ${error}`);
+            } finally {
+              setLoading(false);
             }
           }}
         >
@@ -117,6 +121,8 @@ function App() {
       >
         {error}
       </div>
+
+      {loading && <h3>Installing...</h3>}
     </main>
   );
 }
