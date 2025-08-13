@@ -10,7 +10,12 @@ function App() {
   return (
     <main className="container">
       <h1>Welcome to isideload</h1>
-      <p>App made in tauri. Sideloader code written fully in rust.</p>
+      <p>
+        Fully rust sideloader{" "}
+        <span style={{ fontSize: "0.75rem", color: "lightgray" }}>
+          (except for zsign)
+        </span>
+      </p>
       <p>Pairing: {pairing}</p>
       <div className="button-container">
         <button
@@ -21,11 +26,7 @@ function App() {
               filters: [
                 {
                   name: "Pairing File",
-                  extensions: [
-                    "image/jpeg",
-                    "text/plist",
-                    "text/mobiledevicepairing",
-                  ],
+                  extensions: ["image/jpeg", "text/plist"],
                 },
               ],
             });
