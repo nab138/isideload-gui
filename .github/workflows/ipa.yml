@@ -65,8 +65,7 @@ jobs:
         run: |
           mkdir Payload
           cp -R src-tauri/gen/apple/build/isideload-gui_iOS.xcarchive/Products/Applications/isideload-gui.app Payload/
-          cd Payload
-          zip -r ../isideload-gui.ipa *
+          zip -r ../isideload-gui.ipa Payload
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:

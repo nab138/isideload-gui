@@ -21,7 +21,11 @@ function App() {
               filters: [
                 {
                   name: "Pairing File",
-                  extensions: ["plist", "mobiledevicepairing"],
+                  extensions: [
+                    "image/jpeg",
+                    "text/plist",
+                    "text/mobiledevicepairing",
+                  ],
                 },
               ],
             });
