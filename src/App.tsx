@@ -10,7 +10,7 @@ function App() {
   let [pairing, setPairing] = useState<string | null>(null);
   let [appleId, setAppleId] = useState<string>("");
   let [applePassword, setApplePassword] = useState<string>("");
-  let [tfaOpen, setTfaOpen] = useState<boolean>(true);
+  let [tfaOpen, setTfaOpen] = useState<boolean>(false);
   let [tfaCode, setTfaCode] = useState<string>("");
   let [error, setError] = useState<string | null>(null);
 
@@ -77,8 +77,8 @@ function App() {
               await invoke("install_app", {
                 pairingFile: pairing,
                 appPath,
-                appId: appleId,
-                appPassword: applePassword,
+                appleId: appleId,
+                applePassword: applePassword,
               });
             } catch (error) {
               setError(`Error: ${error}`);
