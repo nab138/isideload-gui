@@ -13,7 +13,7 @@ function App() {
   let [tfaOpen, setTfaOpen] = useState<boolean>(false);
   let [tfaCode, setTfaCode] = useState<string>("");
   let [error, setError] = useState<string | null>(null);
-  let [loading, setLoading] = useState<boolean>(true);
+  let [loading, setLoading] = useState<boolean>(false);
 
   const listenerAdded = useRef(false);
   const unlisten2fa = useRef<() => void>(() => {});

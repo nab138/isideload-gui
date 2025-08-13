@@ -8,7 +8,7 @@ use std::str::FromStr;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Listener, Manager, Window};
+use tauri::{AppHandle, Emitter, Listener, Manager, Url, Window};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -38,7 +38,20 @@ async fn install_app(
     let config = SideloadConfiguration::default()
         .set_store_dir(handle.path().app_config_dir().map_err(|e| e.to_string())?);
 
-    sideload_app(&provider, &dev_session, PathBuf::from(app_path), config)
+    let app_path_buf = match Url::parse(&app_path) {
+        Ok(url) => {
+            if let Ok(path_buf) = url.to_file_path() {
+                path_buf
+            } else {
+                return Err("Invalid app path".to_string());
+            }
+        }
+        Err(e) => {
+            return Err(format!("Invalid app path (bad uri): {}", e));
+        }
+    };
+
+    sideload_app(&provider, &dev_session, app_path_buf, config)
         .await
         .map_err(|e| format!("Failed to sideload app: {}", e))?;
 
