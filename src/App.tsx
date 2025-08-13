@@ -23,12 +23,6 @@ function App() {
             let pairing = await open({
               multiple: false,
               directory: false,
-              filters: [
-                {
-                  name: "Pairing File",
-                  extensions: ["image/jpeg", "text/plist"],
-                },
-              ],
             });
             setPairing(pairing as string);
             let contents = await readTextFile(pairing as string);
@@ -49,9 +43,6 @@ function App() {
         }}
       >
         {contents}
-      </div>
-      <div className="credits">
-        <p>Written by nab138</p>
       </div>
     </main>
   );
