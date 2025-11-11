@@ -17,10 +17,12 @@ pub struct TauriLogger {
 
 impl SideloadLogger for TauriLogger {
     fn log(&self, message: &str) {
+        println!("{}", message);
         self.window.emit("output", message.to_string()).ok();
     }
 
     fn error(&self, error: &Error) {
+        println!("Error: {}", error);
         self.window.emit("output", format!("Error: {}", error)).ok();
     }
 }
@@ -43,6 +45,8 @@ async fn install_app(
         pairing_file,
         label: "isideload".to_string(),
     };
+
+    println!("Logging in with Apple ID: {}", apple_id);
 
     let account = login(&handle, window.clone(), apple_id, apple_password)
         .await

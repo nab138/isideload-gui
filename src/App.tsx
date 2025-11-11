@@ -87,6 +87,7 @@ function App() {
         </button>
         <button
           onClick={async () => {
+            setError("");
             let appPath = await open({
               multiple: false,
               directory: false,
