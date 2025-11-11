@@ -1,14 +1,29 @@
 use idevice::{pairing_file::PairingFile, provider::TcpProvider};
 use isideload::developer_session::DeveloperSession;
 use isideload::sideload::sideload_app;
-use isideload::{AnisetteConfiguration, AppleAccount, SideloadConfiguration};
+use isideload::{
+    AnisetteConfiguration, AppleAccount, Error, SideloadConfiguration, SideloadLogger,
+};
 use std::net::IpAddr;
-use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Listener, Manager, Url, Window};
+
+pub struct TauriLogger {
+    window: Arc<Window>,
+}
+
+impl SideloadLogger for TauriLogger {
+    fn log(&self, message: &str) {
+        self.window.emit("output", message.to_string()).ok();
+    }
+
+    fn error(&self, error: &Error) {
+        self.window.emit("output", format!("Error: {}", error)).ok();
+    }
+}
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -29,14 +44,19 @@ async fn install_app(
         label: "isideload".to_string(),
     };
 
-    let account = login(&handle, window, apple_id, apple_password)
+    let account = login(&handle, window.clone(), apple_id, apple_password)
         .await
         .map_err(|e| format!("Failed to login: {}", e))?;
 
     let dev_session = DeveloperSession::new(account);
 
+    let logger = TauriLogger {
+        window: Arc::new(window),
+    };
+
     let config = SideloadConfiguration::default()
-        .set_store_dir(handle.path().app_config_dir().map_err(|e| e.to_string())?);
+        .set_store_dir(handle.path().app_config_dir().map_err(|e| e.to_string())?)
+        .set_logger(&logger);
 
     let app_path_buf = match Url::parse(&app_path) {
         Ok(url) => {

@@ -16,7 +16,9 @@ function App() {
   let [loading, setLoading] = useState<boolean>(false);
 
   const listenerAdded = useRef(false);
+  const listenerAddedOutput = useRef(false);
   const unlisten2fa = useRef<() => void>(() => {});
+  const unlistenOutput = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!listenerAdded.current) {
@@ -30,6 +32,21 @@ function App() {
     }
     return () => {
       unlisten2fa.current();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!listenerAddedOutput.current) {
+      (async () => {
+        const unlistenFn = await listen("output", (e) => {
+          setError((prev) => prev + "\n" + e.payload);
+        });
+        unlistenOutput.current = unlistenFn;
+      })();
+      listenerAddedOutput.current = true;
+    }
+    return () => {
+      unlistenOutput.current();
     };
   }, []);
 
@@ -83,7 +100,7 @@ function App() {
                 applePassword: applePassword,
               });
             } catch (error) {
-              setError(`Error: ${error}`);
+              setError((prev) => prev + `\nError: ${error}`);
             } finally {
               setLoading(false);
             }
