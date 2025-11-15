@@ -1,15 +1,17 @@
-use idevice::{pairing_file::PairingFile, provider::TcpProvider};
+use idevice::heartbeat::HeartbeatClient;
+use idevice::{pairing_file::PairingFile, provider::TcpProvider, IdeviceService};
 use isideload::developer_session::DeveloperSession;
 use isideload::sideload::sideload_app;
 use isideload::{
     AnisetteConfiguration, AppleAccount, Error, SideloadConfiguration, SideloadLogger,
 };
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Listener, Manager, Url, Window};
+use tauri::{AppHandle, Emitter, Listener, Manager, Window};
 
 pub struct TauriLogger {
     window: Arc<Window>,
@@ -37,16 +39,37 @@ async fn install_app(
     apple_password: String,
     app_path: String,
 ) -> Result<(), String> {
-    println!("Installing app with pairing file: {}", pairing_file);
     let pairing_file = PairingFile::from_bytes(pairing_file.as_bytes())
         .map_err(|e| format!("Failed to parse pairing file: {}", e))?;
-    let addr =
-        IpAddr::from_str("10.7.0.1").map_err(|e| format!("Failed to parse IP address: {}", e))?;
+    let addr = IpAddr::from_str("192.168.1.117")
+        .map_err(|e| format!("Failed to parse IP address: {}", e))?;
     let provider = TcpProvider {
         addr,
         pairing_file,
         label: "isideload".to_string(),
     };
+
+    let mut heartbeat_client = HeartbeatClient::connect(&provider)
+        .await
+        .expect("Unable to connect to heartbeat");
+
+    tokio::spawn(async move {
+        let mut interval = 15;
+        loop {
+            match heartbeat_client.get_marco(interval).await {
+                Ok(v) => interval = v + 5,
+                Err(e) => {
+                    println!("Heartbeat get_marco error: {:?}", e);
+                    break;
+                }
+            }
+
+            if let Err(e) = heartbeat_client.send_polo().await {
+                println!("Heartbeat send_polo error: {:?}", e);
+                break;
+            }
+        }
+    });
 
     println!("Logging in with Apple ID: {}", apple_id);
 
@@ -64,20 +87,20 @@ async fn install_app(
         .set_store_dir(handle.path().app_config_dir().map_err(|e| e.to_string())?)
         .set_logger(&logger);
 
-    let app_path_buf = match Url::parse(&app_path) {
-        Ok(url) => {
-            if let Ok(path_buf) = url.to_file_path() {
-                path_buf
-            } else {
-                return Err("Invalid app path".to_string());
-            }
-        }
-        Err(e) => {
-            return Err(format!("Invalid app path (bad uri): {}", e));
-        }
-    };
+    // let app_path_buf = match Url::parse(&app_path) {
+    //     Ok(url) => {
+    //         if let Ok(path_buf) = url.to_file_path() {
+    //             path_buf
+    //         } else {
+    //             return Err("Invalid app path".to_string());
+    //         }
+    //     }
+    //     Err(e) => {
+    //         return Err(format!("Invalid app path (bad uri): {}", e));
+    //     }
+    // };
 
-    sideload_app(&provider, &dev_session, app_path_buf, config)
+    sideload_app(&provider, &dev_session, PathBuf::from(app_path), config)
         .await
         .map_err(|e| format!("Failed to sideload app: {}", e))?;
 

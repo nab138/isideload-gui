@@ -128,17 +128,21 @@ function App() {
           </>
         )}
       </div>
-      <pre
-        style={{
-          maxWidth: "100%",
-          maxHeight: "40%",
-          overflow: "auto",
-          backgroundColor: "black",
-          marginTop: "10px",
-        }}
-      >
-        {error}
-      </pre>
+      {error && (
+        <pre
+          style={{
+            maxWidth: "100%",
+            overflow: "auto",
+            backgroundColor: "black",
+            marginTop: "10px",
+            padding: "10px",
+            paddingTop: "0px",
+            textAlign: "left",
+          }}
+        >
+          {error}
+        </pre>
+      )}
 
       {loading && <h3>Installing...</h3>}
     </main>
