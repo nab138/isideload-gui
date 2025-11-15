@@ -40,8 +40,8 @@ async fn install_app(
 ) -> Result<(), String> {
     let pairing_file = PairingFile::from_bytes(pairing_file.as_bytes())
         .map_err(|e| format!("Failed to parse pairing file: {}", e))?;
-    let addr = IpAddr::from_str("192.168.1.117")
-        .map_err(|e| format!("Failed to parse IP address: {}", e))?;
+    let addr =
+        IpAddr::from_str("10.7.0.1").map_err(|e| format!("Failed to parse IP address: {}", e))?;
     let provider = TcpProvider {
         addr,
         pairing_file,
