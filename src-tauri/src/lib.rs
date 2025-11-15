@@ -62,7 +62,7 @@ async fn install_app(
 
     let config = SideloadConfiguration::default()
         .set_store_dir(handle.path().app_config_dir().map_err(|e| e.to_string())?)
-        .set_logger(Box::new(logger));
+        .set_logger(&logger);
 
     let app_path_buf = match Url::parse(&app_path) {
         Ok(url) => {
