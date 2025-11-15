@@ -128,7 +128,7 @@ function App() {
           </>
         )}
       </div>
-      <div
+      <pre
         style={{
           maxWidth: "100%",
           maxHeight: "40%",
@@ -138,7 +138,7 @@ function App() {
         }}
       >
         {error}
-      </div>
+      </pre>
 
       {loading && <h3>Installing...</h3>}
     </main>
